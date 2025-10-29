@@ -316,8 +316,15 @@ Sanket [1] is a Software Development Engineer [1]. He works at Neurolaw AI [1]. 
         
         for img_info in images:
             image_path = img_info.get('filepath')
-            if not image_path or not Path(image_path).exists():
-                logger.warning(f"Image not found: {image_path}")
+            
+            # Skip if no valid filepath (e.g., Supabase images without local path)
+            if not image_path:
+                logger.debug(f"Skipping image without filepath: {img_info.get('filename', 'unknown')}")
+                continue
+                
+            # Skip if file doesn't exist
+            if not Path(image_path).exists():
+                logger.debug(f"Skipping non-existent image: {image_path}")
                 continue
             
             logger.info(f"Analyzing image: {img_info.get('filename')}")
