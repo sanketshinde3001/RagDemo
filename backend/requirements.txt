@@ -16,6 +16,10 @@ google-generativeai==0.8.3
 requests==2.32.3  # HTTP library for Serper API
 deepgram-sdk==3.2.7  # Real-time speech-to-text
 
+# BM25 & NLP (FREE keyword search)
+rank-bm25==0.2.2  # BM25 algorithm for keyword search
+nltk==3.9.1  # Natural Language Toolkit for text processing
+
 # Storage & Database
 supabase==2.9.0
 
