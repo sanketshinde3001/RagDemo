@@ -211,16 +211,16 @@ async def upload_pdf(
         elif not settings.GOOGLE_API_KEY:
             logger.warning("GOOGLE_API_KEY not set - skipping image analysis")
         
-        # Add semantic chunking WITH EMBEDDINGS
-        logger.info("Starting semantic text chunking with embeddings")
+        # Add PAGE-WISE chunking WITH EMBEDDINGS
+        logger.info("Starting PAGE-WISE chunking with embeddings")
         extraction_result = chunk_pdf_extraction(
             extraction_result,
-            chunk_size=1200,  # Increased from 500 to 1200 for better context
-            chunk_overlap=100,  # Increased from 50 to 100 for better continuity
-            generate_embeddings=True  # Generate embeddings for chunks
+            generate_embeddings=True,  # Generate embeddings for chunks
+            page_wise=True,  # ONE CHUNK PER PAGE
+            overlap_pages=1  # Include 30% of previous page for context
         )
         total_chunks = extraction_result.get('total_chunks', 0)
-        logger.info(f"✓ Created {total_chunks} text chunks with embeddings")
+        logger.info(f"✓ Created {total_chunks} PAGE-WISE chunks with embeddings")
         
         # Store in Pinecone
         logger.info("Storing vectors in Pinecone...")

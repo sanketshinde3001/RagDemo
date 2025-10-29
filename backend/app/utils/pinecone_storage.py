@@ -104,16 +104,21 @@ class PineconeStorage:
                     logger.warning(f"Chunk {i} has no embedding, skipping")
                     continue
                 
-                # Prepare metadata
+                # Prepare metadata - only include non-None values
                 metadata = {
                     'doc_id': doc_id,
                     'chunk_id': i,
                     'text': chunk.get('text', ''),
-                    'type': 'text_chunk',
-                    'page_num': chunk.get('page_num'),
-                    'length': chunk.get('length'),
-                    'start_pos': chunk.get('start_pos')
+                    'type': 'text_chunk'
                 }
+                
+                # Add optional fields only if they exist and are not None
+                if chunk.get('page_num') is not None:
+                    metadata['page_num'] = chunk.get('page_num')
+                if chunk.get('length') is not None:
+                    metadata['length'] = chunk.get('length')
+                if chunk.get('start_pos') is not None:
+                    metadata['start_pos'] = chunk.get('start_pos')
                 
                 # Add PDF URL and session tracking
                 if pdf_url:
@@ -123,7 +128,7 @@ class PineconeStorage:
                 if filename:
                     metadata['filename'] = filename
                 
-                # Add any additional metadata from chunk
+                # Add any additional metadata from chunk (skip None values)
                 for key, value in chunk.items():
                     if key not in ['embedding', 'text', 'embedding_model', 'embedding_dimensions']:
                         if value is not None and key not in metadata:
