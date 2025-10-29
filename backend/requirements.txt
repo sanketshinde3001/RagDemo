@@ -13,7 +13,7 @@ numpy==1.26.4
 
 # AI/ML
 google-generativeai==0.8.3
-google-search-results==2.4.2  # SerpAPI for web search
+requests==2.32.3  # HTTP library for Serper API
 deepgram-sdk==3.2.7  # Real-time speech-to-text
 
 # Storage & Database

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
+        "https://*.vercel.app",  # Allow all Vercel preview deployments
+        "https://your-app.vercel.app",  # Replace with your actual domain
     ]
     
     # Database
@@ -22,8 +24,7 @@ class Settings(BaseSettings):
     
     # AI APIs
     DEEPGRAM_API_KEY: str = ""
-    SERPER_API_KEY: str = ""
-    SERPAPI_KEY: str = ""  # SerpAPI for web search
+    SERPER_API_KEY: str = ""  # Serper.dev for web search
     
     # Google AI (Gemini)
     GOOGLE_API_KEY: str = ""

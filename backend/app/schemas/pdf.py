@@ -57,6 +57,7 @@ class ChatRequest(BaseModel):
     query: str = Field(..., description="User's question")
     session_id: str = Field(..., description="Session ID to search within")
     top_k: int = Field(5, description="Number of context chunks to retrieve")
+    enable_web_search: bool = Field(False, description="Enable web search for non-document queries")
 
 
 class ContextChunk(BaseModel):

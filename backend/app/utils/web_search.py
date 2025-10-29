@@ -1,19 +1,19 @@
 """
-SerpAPI Web Search Integration
+Serper API Web Search Integration
 Performs web searches for queries that need external information
 """
 
 import logging
 from typing import Dict, List, Optional
 import os
-from serpapi import GoogleSearch
+import requests
 
 logger = logging.getLogger(__name__)
 
 
 class WebSearcher:
     """
-    Perform web searches using SerpAPI
+    Perform web searches using Serper API (serper.dev)
     """
     
     def __init__(self, api_key: Optional[str] = None):
@@ -21,17 +21,19 @@ class WebSearcher:
         Initialize web searcher
         
         Args:
-            api_key: SerpAPI API key (optional, will use env var if not provided)
+            api_key: Serper API key (optional, will use env var if not provided)
         """
-        self.api_key = api_key or os.getenv('SERPAPI_KEY')
+        self.api_key = api_key or os.getenv('SERPER_API_KEY')
+        self.base_url = "https://google.serper.dev/search"
+        
         if not self.api_key:
-            logger.warning("SERPAPI_KEY not configured - web search disabled")
+            logger.warning("SERPER_API_KEY not configured - web search disabled")
         else:
-            logger.info("Web searcher initialized with SerpAPI")
+            logger.info("Web searcher initialized with Serper API")
     
     def search(self, query: str, num_results: int = 5) -> Dict[str, any]:
         """
-        Perform web search
+        Perform web search using Serper API
         
         Args:
             query: Search query
@@ -43,26 +45,37 @@ class WebSearcher:
         if not self.api_key:
             return {
                 'success': False,
-                'error': 'SerpAPI not configured',
+                'error': 'Serper API not configured',
                 'results': []
             }
         
         try:
             logger.info(f"Performing web search for: {query}")
             
-            # Perform search
-            params = {
-                "q": query,
-                "api_key": self.api_key,
-                "num": num_results,
-                "engine": "google"
+            # Prepare request
+            headers = {
+                'X-API-KEY': self.api_key,
+                'Content-Type': 'application/json'
             }
             
-            search = GoogleSearch(params)
-            results = search.get_dict()
+            payload = {
+                'q': query,
+                'num': num_results
+            }
+            
+            # Make request
+            response = requests.post(
+                self.base_url,
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            
+            response.raise_for_status()
+            results = response.json()
             
             # Extract organic results
-            organic_results = results.get("organic_results", [])
+            organic_results = results.get("organic", [])
             
             # Format results
             formatted_results = []
@@ -71,7 +84,7 @@ class WebSearcher:
                     'title': result.get('title', ''),
                     'link': result.get('link', ''),
                     'snippet': result.get('snippet', ''),
-                    'source': result.get('source', '')
+                    'source': result.get('link', '').split('/')[2] if result.get('link') else ''
                 })
             
             logger.info(f"✓ Found {len(formatted_results)} web search results")
@@ -82,8 +95,15 @@ class WebSearcher:
                 'query': query
             }
             
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logger.error(f"Web search error: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'results': []
+            }
+        except Exception as e:
+            logger.error(f"Unexpected web search error: {e}")
             return {
                 'success': False,
                 'error': str(e),

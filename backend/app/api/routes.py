@@ -95,6 +95,20 @@ async def update_item(item_id: int, item: ItemUpdate):
 
 
 # ============================================
+# HEALTH CHECK ENDPOINT
+# ============================================
+
+@router.get("/health", tags=["health"])
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "service": "RAG Chatbot API",
+        "version": "1.0.0"
+    }
+
+
+# ============================================
 # PDF PROCESSING ENDPOINTS
 # ============================================
 
@@ -201,8 +215,8 @@ async def upload_pdf(
         logger.info("Starting semantic text chunking with embeddings")
         extraction_result = chunk_pdf_extraction(
             extraction_result,
-            chunk_size=500,
-            chunk_overlap=50,
+            chunk_size=1200,  # Increased from 500 to 1200 for better context
+            chunk_overlap=100,  # Increased from 50 to 100 for better continuity
             generate_embeddings=True  # Generate embeddings for chunks
         )
         total_chunks = extraction_result.get('total_chunks', 0)
@@ -288,7 +302,7 @@ async def chat_with_documents(request: ChatRequest):
     - Classifies query type (greeting, document, web_search)
     - Simple greetings get instant responses
     - Document questions use RAG retrieval from Pinecone
-    - Web search queries use SerpAPI
+    - Web search queries use Serper API (if enable_web_search is True)
     - Maintains conversation history in Supabase
     
     Args:
@@ -298,7 +312,7 @@ async def chat_with_documents(request: ChatRequest):
         ChatResponse with generated answer, context, and sources
     """
     try:
-        logger.info(f"Chat query: '{request.query}' (session: {request.session_id})")
+        logger.info(f"Chat query: '{request.query}' (session: {request.session_id}, web_search: {request.enable_web_search})")
         
         # 1. Classify the query
         classifier = get_query_classifier()
@@ -309,6 +323,13 @@ async def chat_with_documents(request: ChatRequest):
         
         classification = classifier.classify(request.query, has_documents)
         query_type = classification['type']
+        
+        # Override classification if user explicitly enabled web search
+        if request.enable_web_search and query_type == 'document':
+            # Re-check if query might benefit from web search
+            if not any(keyword in request.query.lower() for keyword in ['document', 'pdf', 'page', 'text', 'chapter', 'section']):
+                query_type = 'web_search'
+                logger.info(f"Overriding to web_search due to enable_web_search flag")
         
         logger.info(f"Query classified as: {query_type} (confidence: {classification['confidence']:.2f}) - {classification['reason']}")
         
@@ -395,11 +416,12 @@ User Question: {request.query}
 
 Instructions:
 - Answer based on the web search results
-- Cite sources by mentioning the website names
-- Be concise and informative
-- If the results don't fully answer the question, say so
+- Use **markdown formatting** for better readability (bold, bullet points, headings)
+- Cite sources by mentioning the **website names** in your answer
+- Structure your answer with clear paragraphs and formatting
+- If the results don't fully answer the question, acknowledge it
 
-Answer:"""
+Answer (use markdown formatting):"""
             
             response = model.generate_content(prompt)
             answer = response.text

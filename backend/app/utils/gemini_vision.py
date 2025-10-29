@@ -63,15 +63,28 @@ class GeminiVisionAnalyzer:
             logger.info(f"  Context chunks: {len(context_chunks)}")
             logger.info(f"  History messages: {len(chat_history) if chat_history else 0}")
             
-            # Generate response
-            response = self.model.generate_content(prompt)
+            # Generate response with increased max_output_tokens
+            generation_config = {
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40,
+                "max_output_tokens": 2048,  # Increased from default 1024 to 2048
+            }
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=generation_config
+            )
             
             # Extract sources from chunks
             sources = self._extract_sources(context_chunks)
             
+            # Convert inline citations to clickable links
+            answer = self._convert_citations_to_links(response.text, sources)
+            
             return {
                 'success': True,
-                'answer': response.text,
+                'answer': answer,
                 'sources': sources,
                 'num_chunks': len(context_chunks),
                 'model': 'gemini-2.0-flash-exp'
@@ -88,20 +101,30 @@ class GeminiVisionAnalyzer:
             }
     
     def _build_context(self, chunks: List[Dict], max_length: int) -> str:
-        """Build context string from retrieved chunks"""
+        """Build context string from retrieved chunks, grouped by page"""
         context_parts = []
         total_length = 0
         
-        for i, chunk in enumerate(chunks, 1):
-            # Get chunk info
-            text = chunk.get('text', '')
-            score = chunk.get('score', 0)
-            chunk_type = chunk.get('type', 'text')
+        # Group chunks by page number
+        pages_dict = {}
+        for chunk in chunks:
             page = chunk.get('page_num', 'unknown')
-            filename = chunk.get('filename', 'unknown')
+            if page not in pages_dict:
+                pages_dict[page] = []
+            pages_dict[page].append(chunk)
+        
+        # Create context with page-based numbering
+        page_num = 1
+        for page, page_chunks in pages_dict.items():
+            # Combine all chunks from the same page
+            page_texts = [chunk.get('text', '') for chunk in page_chunks]
+            combined_text = '\n'.join(page_texts)
             
-            # Format chunk with metadata
-            chunk_text = f"\n[Source {i}] (Page {page}, {filename}, Relevance: {score:.2f})\n{text}\n"
+            filename = page_chunks[0].get('filename', 'unknown')
+            avg_score = sum(chunk.get('score', 0) for chunk in page_chunks) / len(page_chunks)
+            
+            # Format with page number as source
+            chunk_text = f"\n[Source {page_num}] (Page {page}, {filename}, Relevance: {avg_score:.2f})\n{combined_text}\n"
             
             # Check length
             if total_length + len(chunk_text) > max_length:
@@ -109,6 +132,7 @@ class GeminiVisionAnalyzer:
             
             context_parts.append(chunk_text)
             total_length += len(chunk_text)
+            page_num += 1
         
         return "\n".join(context_parts)
     
@@ -139,11 +163,31 @@ class GeminiVisionAnalyzer:
         prompt_parts.append("""You are a helpful AI assistant that answers questions based on the provided document context.
 
 IMPORTANT INSTRUCTIONS:
+- Provide comprehensive, detailed answers in a natural, conversational style
+- Use **markdown formatting** sparingly and strategically:
+  * Use **bold** ONLY for 2-3 most important terms or section titles
+  * Use bullet points (- or numbers) for lists
+  * Use ## for main section headings (use sparingly, 1-2 max)
+- Write in clear, flowing paragraphs (3-5 paragraphs for complex questions)
 - Answer based ONLY on the information in the context below
-- If the context doesn't contain relevant information, say "I don't have enough information to answer that question based on the provided documents."
-- Cite sources by mentioning page numbers and document names when possible
-- Be concise but comprehensive
-- If there's conversation history, use it to understand context but prioritize the latest question
+
+CRITICAL - CITATION RULES:
+- When referencing information, cite the source number [1], [2], [3] etc.
+- Each source number corresponds to a PAGE in the document (not individual chunks)
+- Place citations strategically - NOT after every sentence
+- Cite once per paragraph or when introducing new information from a specific page
+- Multiple facts from the same page can share one citation at the end
+- DO NOT over-cite - keep it clean and readable
+
+CITATION EXAMPLES:
+
+✅ CORRECT (minimal citations):
+Sanket Rajendra Shinde is a Software Development Engineer seeking opportunities. He has experience at Neurolaw AI where he developed custom RAG pipelines, integrated Cloud OCR, and built real-time court scrapers [1]. 
+
+His technical skills include Full Stack development, Cloud technologies, and AI/ML & GenAI [1]. He has several projects including Quickmed and InterviewAce [1].
+
+❌ WRONG (too many citations):
+Sanket [1] is a Software Development Engineer [1]. He works at Neurolaw AI [1]. He has skills [1].
 """)
         
         # Add conversation history if present
@@ -155,9 +199,41 @@ IMPORTANT INSTRUCTIONS:
         
         # Add current query
         prompt_parts.append(f"\nCURRENT QUESTION: {query}\n")
-        prompt_parts.append("\nANSWER:")
+        prompt_parts.append("\nANSWER (use markdown formatting):")
         
         return "\n".join(prompt_parts)
+    
+    def _convert_citations_to_links(self, text: str, sources: List[Dict]) -> str:
+        """
+        Convert citation numbers [1], [2] to clickable markdown links
+        [1] -> [1](url#page=1)
+        [2] -> [2](url#page=2)
+        """
+        import re
+        
+        # Find all [1], [2], [3] patterns
+        def replace_citation(match):
+            citation_num = int(match.group(1))
+            
+            # Get the corresponding source (1-indexed)
+            if 0 < citation_num <= len(sources):
+                source = sources[citation_num - 1]
+                url = source['url']
+                pages = source['pages']
+                
+                # Use first page for the link - convert to int to remove .0
+                page = int(pages[0]) if pages else 1
+                link = f"{url}#page={page}"
+                
+                # Create clickable citation - single brackets only
+                return f'[{citation_num}]({link})'
+            
+            return match.group(0)  # Return original if source not found
+        
+        # Replace all [1], [2], [3] etc with clickable links
+        converted_text = re.sub(r'\[(\d+)\]', replace_citation, text)
+        
+        return converted_text
     
     def _extract_sources(self, chunks: List[Dict]) -> List[Dict]:
         """Extract unique sources from chunks"""

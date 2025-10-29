@@ -130,24 +130,67 @@ class QueryClassifier:
     
     def get_greeting_response(self, query: str) -> str:
         """
-        Generate a friendly greeting response
+        Generate a friendly greeting response with markdown formatting
         """
         query_lower = query.lower().strip()
         
         if 'how are you' in query_lower or 'how\'s it going' in query_lower:
-            return "I'm doing great, thank you for asking! I'm here to help you with your documents. How can I assist you today?"
+            return """I'm doing **great**, thank you for asking! 😊
+
+I'm your AI document assistant, ready to help you with:
+- 📄 **Document Q&A** - Ask questions about your uploaded PDFs
+- 🔍 **Web Search** - Toggle web search for real-time information
+- 🎤 **Voice Input** - Speak your questions naturally
+
+How can I assist you today?"""
         
         if 'morning' in query_lower:
-            return "Good morning! 🌅 I'm your document assistant. Upload a PDF or ask me anything!"
+            return """**Good morning!** 🌅
+
+I'm ready to help you explore your documents. Here's what I can do:
+- Answer questions from your PDF documents
+- Search the web for additional information
+- Understand voice commands
+
+Upload a PDF or ask me anything!"""
         
         if 'afternoon' in query_lower:
-            return "Good afternoon! ☀️ Ready to help you explore your documents. What would you like to know?"
+            return """**Good afternoon!** ☀️
+
+Ready to assist with your document questions. I can help with:
+- **Document analysis** - Deep insights from your PDFs
+- **Web research** - Real-time information when needed
+- **Smart search** - Find exactly what you need
+
+What would you like to know?"""
         
         if 'evening' in query_lower:
-            return "Good evening! 🌙 I'm here to assist with your document questions. How can I help?"
+            return """**Good evening!** 🌙
+
+I'm here to help with your documents. My capabilities include:
+- Answering questions based on your uploaded PDFs
+- Web search integration for current information
+- Multi-modal understanding (text + images)
+
+How can I help you tonight?"""
         
         # Default friendly greeting
-        return "Hello! 👋 I'm your AI document assistant. Upload a PDF to get started, or ask me anything!"
+        return """**Hello!** 👋
+
+I'm your **AI Document Assistant** powered by Gemini 2.0. Here's how I can help:
+
+**My Capabilities:**
+- 📄 Answer questions from your PDF documents
+- 🔍 Search the web when needed (toggle the switch)
+- 🎤 Understand voice commands
+- 🖼️ Analyze text and images
+
+**To get started:**
+1. Upload a PDF document
+2. Ask questions about it
+3. Enable web search for real-time info
+
+What can I help you with?"""
 
 
 # Singleton instance
