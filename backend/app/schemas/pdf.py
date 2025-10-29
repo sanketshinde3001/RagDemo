@@ -58,6 +58,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Session ID to search within")
     top_k: int = Field(5, description="Number of context chunks to retrieve")
     enable_web_search: bool = Field(False, description="Enable web search for non-document queries")
+    search_mode: str = Field("vector", description="Search mode: 'vector' (default), 'keyword' (BM25), or 'hybrid' (both)")
 
 
 class ContextChunk(BaseModel):

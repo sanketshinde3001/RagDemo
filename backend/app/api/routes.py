@@ -3,7 +3,7 @@ from app.schemas.item import Item, ItemCreate, ItemUpdate
 from app.schemas.pdf import PDFUploadResponse, ProcessingStatus, ChatRequest, ChatResponse, ContextChunk
 from app.utils.pdf_extractor import extract_pdf
 from app.utils.gemini_vision import analyze_pdf_images, GeminiVisionAnalyzer
-from app.utils.text_chunker import chunk_pdf_extraction
+from app.utils.semantic_chunker import chunk_pdf_extraction
 from app.utils.supabase_storage import get_storage_client
 from app.utils.pinecone_storage import get_pinecone_storage
 from app.utils.chat_storage import chat_storage
@@ -23,12 +23,14 @@ import json
 import asyncio
 from app.utils.pdf_extractor import extract_pdf
 from app.utils.gemini_vision import analyze_pdf_images, GeminiVisionAnalyzer
-from app.utils.text_chunker import chunk_pdf_extraction
+from app.utils.semantic_chunker import chunk_pdf_extraction
 from app.utils.supabase_storage import get_storage_client
 from app.utils.pinecone_storage import get_pinecone_storage
 from app.utils.chat_storage import chat_storage
 from app.utils.query_classifier import get_query_classifier
 from app.utils.web_search import get_web_searcher
+from app.utils.bm25_index import build_bm25_index
+from app.utils.hybrid_search import hybrid_search, keyword_search_only
 from app.core.config import settings
 from typing import List
 import google.generativeai as genai
@@ -115,7 +117,8 @@ async def health_check():
 @router.post("/upload-pdf", response_model=PDFUploadResponse, tags=["pdf"])
 async def upload_pdf(
     file: UploadFile = File(...),
-    session_id: str = None  # Optional session ID for chat tracking
+    session_id: str = None,  # Optional session ID for chat tracking
+    chunking_strategy: str = "page_wise"  # "page_wise" (fast) or "semantic" (smart)
 ):
     """
     Upload and process a PDF file
@@ -126,6 +129,7 @@ async def upload_pdf(
     - Classifies images (chart/diagram vs photo)
     - Saves images to Supabase Storage
     - Generates embeddings and stores in Pinecone with session tracking
+    - Chunking strategy: "page_wise" (⚡ fast, 1 chunk/page) or "semantic" (🧠 smart, 3-5 chunks/page)
     
     Args:
         file: PDF file to upload
@@ -211,16 +215,17 @@ async def upload_pdf(
         elif not settings.GOOGLE_API_KEY:
             logger.warning("GOOGLE_API_KEY not set - skipping image analysis")
         
-        # Add PAGE-WISE chunking WITH EMBEDDINGS
-        logger.info("Starting PAGE-WISE chunking with embeddings")
+        # Add SEMANTIC or PAGE-WISE chunking WITH EMBEDDINGS
+        logger.info(f"Starting {chunking_strategy.upper()} chunking with embeddings")
         extraction_result = chunk_pdf_extraction(
             extraction_result,
-            generate_embeddings=True,  # Generate embeddings for chunks
-            page_wise=True,  # ONE CHUNK PER PAGE
-            overlap_pages=1  # Include 30% of previous page for context
+            strategy=chunking_strategy,
+            max_chunk_size=1500,
+            min_chunk_size=300,
+            generate_embeddings=True
         )
         total_chunks = extraction_result.get('total_chunks', 0)
-        logger.info(f"✓ Created {total_chunks} PAGE-WISE chunks with embeddings")
+        logger.info(f"✓ Created {total_chunks} {chunking_strategy.upper()} chunks with embeddings")
         
         # Store in Pinecone
         logger.info("Storing vectors in Pinecone...")
@@ -232,8 +237,29 @@ async def upload_pdf(
         logger.info(f"✓ Stored {storage_result['total_vectors']} vectors in Pinecone")
         logger.info(f"✓ Session ID for this upload: {storage_result['session_id']}")
         
+        # Build BM25 index for keyword search (in-memory, FREE)
+        logger.info("Building BM25 index for keyword search...")
+        chunks = extraction_result.get('chunks', [])
+        logger.info(f"Found {len(chunks)} chunks to index")
+        
+        if not chunks:
+            logger.warning("⚠ No chunks found - BM25 index not built")
+        else:
+            bm25_success = build_bm25_index(storage_result['session_id'], chunks)
+            if bm25_success:
+                logger.info(f"✓ Built BM25 index with {len(chunks)} chunks for session {storage_result['session_id']}")
+            else:
+                logger.warning("⚠ Failed to build BM25 index (keyword search disabled)")
+        
         # Add storage info to response
         extraction_result['pinecone_storage'] = storage_result
+        
+        # Wait for Pinecone to finish indexing (free tier needs time)
+        # Adaptive wait based on number of vectors
+        wait_time = min(10, max(3, total_chunks * 0.5))  # 0.5 sec per chunk, 3-10 sec range
+        logger.info(f"⏱️  Waiting {wait_time:.1f}s for Pinecone to index {total_chunks} vectors...")
+        await asyncio.sleep(wait_time)
+        logger.info("✓ Ready for queries!")
         
         return PDFUploadResponse(
             success=True,
@@ -456,16 +482,41 @@ Answer (use markdown formatting):"""
         
         # === DOCUMENT RAG HANDLER ===
         else:  # query_type == 'document'
-            # 1. Retrieve relevant context from Pinecone (RAG retrieval)
-            logger.info(f"🔍 Searching Pinecone with session_id: {request.session_id}")
+            # 1. Retrieve relevant context based on search_mode
+            logger.info(f"🔍 Searching with mode '{request.search_mode}' (session: {request.session_id})")
             
             pinecone_storage = get_pinecone_storage()
-            results = pinecone_storage.query(
-                query_text=request.query,
-                top_k=request.top_k,
-                session_id=request.session_id,  # Filter by session
-                include_text=True
-            )
+            
+            # Route based on search mode
+            if request.search_mode == 'keyword':
+                # Pure BM25 keyword search
+                results = keyword_search_only(
+                    session_id=request.session_id,
+                    query=request.query,
+                    top_k=request.top_k
+                )
+                logger.info(f"✓ BM25 keyword search: {len(results)} results")
+                
+            elif request.search_mode == 'hybrid':
+                # Hybrid: BM25 + Vector with RRF fusion
+                results = hybrid_search(
+                    session_id=request.session_id,
+                    query=request.query,
+                    top_k=request.top_k,
+                    bm25_weight=0.4,
+                    vector_weight=0.6
+                )
+                logger.info(f"✓ Hybrid search (BM25+Vector): {len(results)} results")
+                
+            else:  # 'vector' (default)
+                # Traditional vector search
+                results = pinecone_storage.query(
+                    query_text=request.query,
+                    top_k=request.top_k,
+                    session_id=request.session_id,
+                    include_text=True
+                )
+                logger.info(f"✓ Vector search: {len(results)} results")
             
             if not results:
                 # No context found - save the query and return helpful message
