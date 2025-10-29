@@ -71,6 +71,7 @@ export interface ChatRequest {
   session_id: string;
   top_k?: number;
   enable_web_search?: boolean;
+  search_mode?: 'vector' | 'keyword' | 'hybrid';
 }
 
 export interface ChatResponse {
@@ -82,11 +83,18 @@ export interface ChatResponse {
 }
 
 // Upload PDF to backend
-export async function uploadPDF(file: File, sessionId?: string): Promise<PDFUploadResponse> {
+export async function uploadPDF(
+  file: File, 
+  sessionId?: string,
+  chunkingStrategy?: 'page_wise' | 'semantic'
+): Promise<PDFUploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (sessionId) {
     formData.append('session_id', sessionId);
+  }
+  if (chunkingStrategy) {
+    formData.append('chunking_strategy', chunkingStrategy);
   }
 
   const response = await fetch(`${API_BASE_URL}/api/v1/upload-pdf`, {

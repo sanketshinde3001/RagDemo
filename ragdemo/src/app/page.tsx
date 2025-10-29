@@ -22,6 +22,8 @@ export default function Home() {
   const [uploadedDoc, setUploadedDoc] = useState<PDFUploadResponse | null>(null);
   const [showExtractedText, setShowExtractedText] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [searchMode, setSearchMode] = useState<'vector' | 'keyword' | 'hybrid'>('hybrid');
+  const [chunkingStrategy, setChunkingStrategy] = useState<'page_wise' | 'semantic'>('page_wise');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when messages change
@@ -62,7 +64,7 @@ export default function Home() {
     }]);
 
     try {
-      const response = await uploadPDF(file, sessionId);
+      const response = await uploadPDF(file, sessionId, chunkingStrategy);
       setUploadedDoc(response);
       setShowExtractedText(false);
       
@@ -146,7 +148,8 @@ You can now ask questions about this document.`,
         query: textToSend,
         session_id: sessionId,
         top_k: 5,
-        enable_web_search: webSearchEnabled
+        enable_web_search: webSearchEnabled,
+        search_mode: searchMode
       });
 
       // Add assistant response with sources
@@ -360,6 +363,37 @@ You can now ask questions about this document.`,
         <div className="max-w-4xl mx-auto">
           {/* PDF Upload Button */}
           <div className="mb-4 flex items-center gap-3 flex-wrap">
+            {/* Chunking Strategy Selector */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Chunking:</span>
+              <button
+                type="button"
+                onClick={() => setChunkingStrategy('page_wise')}
+                disabled={uploading}
+                className={`px-3 py-1 text-xs rounded transition-colors ${
+                  chunkingStrategy === 'page_wise' 
+                    ? 'bg-green-600 text-white' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                } disabled:opacity-50`}
+                title="⚡ Fast: 1 chunk per page, instant indexing"
+              >
+                ⚡ Fast
+              </button>
+              <button
+                type="button"
+                onClick={() => setChunkingStrategy('semantic')}
+                disabled={uploading}
+                className={`px-3 py-1 text-xs rounded transition-colors ${
+                  chunkingStrategy === 'semantic' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                } disabled:opacity-50`}
+                title="🧠 Smart: 3-5 chunks per page, better context (10-30s wait)"
+              >
+                🧠 Smart
+              </button>
+            </div>
+            
             <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-all shadow-sm">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -446,6 +480,46 @@ You can now ask questions about this document.`,
             </button>
           </div>
           
+          {/* Search Mode Selector */}
+          <div className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg">
+            <button
+              type="button"
+              onClick={() => setSearchMode('vector')}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                searchMode === 'vector' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+              title="Semantic search using embeddings"
+            >
+              🧠
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchMode('keyword')}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                searchMode === 'keyword' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+              title="Keyword search using BM25"
+            >
+              🔍
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchMode('hybrid')}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                searchMode === 'hybrid' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+              title="Hybrid: BM25 + Vector (Best)"
+            >
+              ⚡
+            </button>
+          </div>
+          
           {/* Send Button */}
           <button
             onClick={() => handleSendMessage()}
@@ -465,7 +539,7 @@ You can now ask questions about this document.`,
         </div>
         
         <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 text-center">
-          Click mic to speak (transcript goes to textbox) • Edit if needed • Press Enter or click Send • Powered by Gemini 2.0 Flash + Deepgram + Pinecone
+          Click mic to speak (transcript goes to textbox) • Edit if needed • Press Enter or click Send • Choose Fast⚡ or Smart🧠 chunking before upload • Powered by Gemini 2.0 Flash + Deepgram + Pinecone + FREE BM25
         </div>
         </div>
       </div>
