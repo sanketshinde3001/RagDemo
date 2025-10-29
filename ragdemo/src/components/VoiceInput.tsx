@@ -7,11 +7,20 @@ interface VoiceInputProps {
   disabled?: boolean;
 }
 
+// Get WebSocket URL from environment variable
+const getWebSocketUrl = () => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  // Convert HTTP(S) to WS(S) protocol
+  const wsUrl = apiUrl.replace(/^http/, 'ws');
+  return `${wsUrl}/api/v1/ws/transcribe`;
+};
+
 export default function VoiceInput({ onTranscript, disabled = false }: VoiceInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState('');
+  const [wsSupported, setWsSupported] = useState(true);
   
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -36,14 +45,20 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
       
       streamRef.current = stream;
 
-      // Connect to WebSocket
-      const ws = new WebSocket('ws://localhost:8000/api/v1/ws/transcribe');
-      wsRef.current = ws;
+      // Connect to WebSocket with dynamic URL
+      const wsUrl = getWebSocketUrl();
+      console.log('🔌 Connecting to WebSocket:', wsUrl);
+      
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-      ws.onopen = () => {
-        console.log('✓ WebSocket connected');
-        setIsConnecting(false);
-        setIsRecording(true);
+        ws.onopen = () => {
+          console.log('✓ WebSocket connected');
+          setIsConnecting(false);
+          setIsRecording(true);
+          setWsSupported(true);
+          setError('');
 
         // Create audio context for resampling
         const audioContext = new AudioContext({ sampleRate: 16000 });
@@ -99,7 +114,8 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setError('Connection error');
+        setError('WebSocket not supported on this platform. Voice input disabled.');
+        setWsSupported(false);
         stopRecording();
       };
 
@@ -107,6 +123,19 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
         console.log('WebSocket closed');
         stopRecording();
       };
+      
+      } catch (wsError) {
+        console.error('WebSocket connection failed:', wsError);
+        setError('Voice input not available (WebSocket not supported on serverless platforms)');
+        setWsSupported(false);
+        setIsConnecting(false);
+        setIsRecording(false);
+        // Clean up stream
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        return;
+      }
 
     } catch (err) {
       console.error('Error starting recording:', err);
@@ -159,15 +188,23 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
     <div className="flex items-center gap-2">
       <button
         onClick={isRecording ? stopRecording : startRecording}
-        disabled={disabled || isConnecting}
+        disabled={disabled || isConnecting || !wsSupported}
         className={`p-3 rounded-lg transition-all shadow-sm ${
-          isRecording
+          !wsSupported
+            ? 'bg-gray-400 cursor-not-allowed'
+            : isRecording
             ? 'bg-red-600 hover:bg-red-700 animate-pulse'
             : isConnecting
             ? 'bg-gray-400 cursor-wait'
             : 'bg-blue-600 hover:bg-blue-700'
         } text-white disabled:opacity-50 disabled:cursor-not-allowed`}
-        title={isRecording ? 'Stop recording' : 'Start voice input'}
+        title={
+          !wsSupported 
+            ? 'Voice input not available (deploy backend with WebSocket support)' 
+            : isRecording 
+            ? 'Stop recording' 
+            : 'Start voice input'
+        }
       >
         {isConnecting ? (
           <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
