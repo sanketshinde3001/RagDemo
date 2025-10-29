@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import routes
 from app.core.config import settings
-import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -16,17 +15,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Get allowed origins from environment or use defaults
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else [
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-]
-
-# Configure CORS with permissive settings for Vercel
+# Configure CORS - Use settings from config
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (you can restrict this later)
+    allow_origins=settings.get_allowed_origins,  # Use the property from settings
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

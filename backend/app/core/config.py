@@ -1,18 +1,30 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Union
+import json
 
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RAG Chatbot API"
     API_V1_STR: str = "/api/v1"
     
-    # CORS
-    ALLOWED_ORIGINS: List[str] = [
+    # CORS - Can be set as JSON string in env vars
+    ALLOWED_ORIGINS: Union[List[str], str] = [
         "http://localhost:3000",
         "http://localhost:8000",
         "https://*.vercel.app",  # Allow all Vercel preview deployments
-        "https://your-app.vercel.app",  # Replace with your actual domain
+        "https://rag-demo-nine.vercel.app",  # Your actual Vercel app
     ]
+    
+    @property
+    def get_allowed_origins(self) -> List[str]:
+        """Parse ALLOWED_ORIGINS whether it's a list or JSON string"""
+        if isinstance(self.ALLOWED_ORIGINS, str):
+            try:
+                return json.loads(self.ALLOWED_ORIGINS)
+            except json.JSONDecodeError:
+                # If single URL string, return as list
+                return [self.ALLOWED_ORIGINS]
+        return self.ALLOWED_ORIGINS
     
     # Database
     DATABASE_URL: str = "sqlite:///./sql_app.db"
