@@ -70,6 +70,7 @@ export interface ChatRequest {
   query: string;
   session_id: string;
   top_k?: number;
+  enable_web_search?: boolean;
 }
 
 export interface ChatResponse {
