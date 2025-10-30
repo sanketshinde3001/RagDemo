@@ -25,11 +25,20 @@ export default function Home() {
   const [searchMode, setSearchMode] = useState<'vector' | 'keyword' | 'hybrid'>('hybrid');
   const [chunkingStrategy, setChunkingStrategy] = useState<'page_wise' | 'semantic'>('page_wise');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Helper function to resize textarea
+  const resizeTextarea = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+    }
+  };
 
   // Generate session ID on mount
   useEffect(() => {
@@ -181,44 +190,48 @@ You can now ask questions about this document.`,
       setInput(prev => {
         // If there's existing text, add a space before appending
         const newText = prev.trim() ? `${prev.trim()} ${text.trim()}` : text.trim();
+        
+        // Trigger textarea resize after state update
+        setTimeout(() => resizeTextarea(), 0);
+        
         return newText;
       });
     }
-    // Interim transcripts are shown in the VoiceInput component's blue pill (not in textbox)
+    // Interim transcripts are shown in the VoiceInput component's floating pill (not in textbox)
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700 px-6 py-5 shadow-sm">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
+      {/* Header - Mobile Optimized */}
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 px-3 sm:px-6 py-3 sm:py-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               RAG Chatbot
             </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">
               Intelligent document analysis powered by AI
             </p>
           </div>
           {uploadedDoc && (
-            <div className="text-right bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div className="text-left sm:text-right bg-blue-50 dark:bg-blue-900/20 px-3 sm:px-4 py-2 rounded-lg border border-blue-200 dark:border-blue-800 w-full sm:w-auto">
               <div className="text-xs text-blue-600 dark:text-blue-400 font-medium">Active Session</div>
-              <div className="text-xs font-mono text-gray-700 dark:text-gray-300 mt-0.5">{sessionId}</div>
+              <div className="text-xs font-mono text-gray-700 dark:text-gray-300 mt-0.5 truncate">{sessionId}</div>
             </div>
           )}
         </div>
       </header>
 
-      {/* Chat Area - Centered */}
-      <div className="flex-1 overflow-y-auto px-6 py-8">
-        <div className="max-w-4xl mx-auto space-y-6">
+      {/* Chat Area - Mobile Optimized */}
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-8">
+        <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
           {messages.map((msg, idx) => (
             <div
               key={idx}
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[85%] rounded-xl px-5 py-4 ${
+                className={`max-w-[90%] sm:max-w-[85%] rounded-xl px-4 sm:px-5 py-3 sm:py-4 ${
                   msg.role === 'user'
                     ? 'bg-blue-600 text-white shadow-md'
                     : msg.role === 'assistant'
@@ -227,7 +240,7 @@ You can now ask questions about this document.`,
                 }`}
               >
               {/* Message content */}
-              <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-bold prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm">
+              <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-bold prose-h1:text-lg sm:prose-h1:text-xl prose-h2:text-base sm:prose-h2:text-lg prose-h3:text-sm sm:prose-h3:text-base prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs sm:prose-code:text-sm">
                 {msg.role === 'assistant' || msg.role === 'system' ? (
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
@@ -445,101 +458,121 @@ You can now ask questions about this document.`,
           )}
         </div>
 
-        {/* Voice + Message Input */}
-        <div className="flex gap-3 items-center">
-          {/* Voice Input */}
-          <VoiceInput 
-            onTranscript={handleVoiceTranscript}
-            disabled={!uploadedDoc || chatting}
-          />
-          
-          {/* Text Input */}
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-            placeholder={uploadedDoc ? "Ask a question about your document..." : "Upload a PDF first..."}
-            disabled={!uploadedDoc || chatting}
-            className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
-          />
-          
-          {/* Simple Toggle */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg">
-            <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">Web Search</span>
+        {/* Voice + Message Input - Mobile Optimized */}
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-stretch sm:items-center">
+          {/* Row 1: Voice + Text Input + Send (Mobile stacks vertically on small screens) */}
+          <div className="flex gap-2 items-center flex-1">
+            {/* Voice Input - Wrapped in relative container for floating transcript */}
+            <div className="relative">
+              <VoiceInput 
+                onTranscript={handleVoiceTranscript}
+                disabled={!uploadedDoc || chatting}
+              />
+            </div>
+            
+            {/* Text Input - Enhanced Responsiveness with Ref */}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                resizeTextarea();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              placeholder={uploadedDoc ? "Ask a question..." : "Upload PDF first..."}
+              disabled={!uploadedDoc || chatting}
+              rows={1}
+              className="flex-1 px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm resize-none overflow-hidden"
+              style={{ minHeight: '42px', maxHeight: '120px' }}
+            />
+            
+            {/* Send Button */}
             <button
-              type="button"
-              onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                webSearchEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
-              }`}
+              onClick={() => handleSendMessage()}
+              disabled={!input.trim() || !uploadedDoc || chatting}
+              className="px-4 sm:px-8 py-2 sm:py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold shadow-sm text-sm whitespace-nowrap"
             >
-              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                webSearchEnabled ? 'translate-x-5' : 'translate-x-0.5'
-              }`} />
+              {chatting ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="hidden sm:inline">Sending</span>
+                </span>
+              ) : 'Send'}
             </button>
           </div>
           
-          {/* Search Mode Selector */}
-          <div className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg">
-            <button
-              type="button"
-              onClick={() => setSearchMode('vector')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                searchMode === 'vector' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-              title="Semantic search using embeddings"
-            >
-              🧠
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchMode('keyword')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                searchMode === 'keyword' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-              title="Keyword search using BM25"
-            >
-              🔍
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchMode('hybrid')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                searchMode === 'hybrid' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-              title="Hybrid: BM25 + Vector (Best)"
-            >
-              ⚡
-            </button>
+          {/* Row 2: Web Search + Search Modes (Horizontal on mobile, stays together) */}
+          <div className="flex gap-2 items-center justify-between sm:justify-start">
+            {/* Web Search Toggle - Compact */}
+            <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg">
+              <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap hidden sm:inline">Web Search</span>
+              <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap sm:hidden">Web</span>
+              <button
+                type="button"
+                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  webSearchEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                  webSearchEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
+            </div>
+            
+            {/* Search Mode Selector - Compact */}
+            <div className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setSearchMode('vector')}
+                className={`px-1.5 sm:px-2 py-1 text-base sm:text-xs rounded transition-colors ${
+                  searchMode === 'vector' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Semantic search using embeddings"
+              >
+                🧠
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchMode('keyword')}
+                className={`px-1.5 sm:px-2 py-1 text-base sm:text-xs rounded transition-colors ${
+                  searchMode === 'keyword' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Keyword search using BM25"
+              >
+                🔍
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchMode('hybrid')}
+                className={`px-1.5 sm:px-2 py-1 text-base sm:text-xs rounded transition-colors ${
+                  searchMode === 'hybrid' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Hybrid: BM25 + Vector (Best)"
+              >
+                ⚡
+              </button>
+            </div>
           </div>
-          
-          {/* Send Button */}
-          <button
-            onClick={() => handleSendMessage()}
-            disabled={!input.trim() || !uploadedDoc || chatting}
-            className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold shadow-sm text-sm"
-          >
-            {chatting ? (
-              <span className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Sending
-              </span>
-            ) : 'Send'}
-          </button>
         </div>
         
-        <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 text-center">
-          Click mic to speak (transcript goes to textbox) • Edit if needed • Press Enter or click Send • Choose Fast⚡ or Smart🧠 chunking before upload • Powered by Gemini 2.0 Flash + Deepgram + Pinecone + FREE BM25
+        <div className="mt-3 sm:mt-4 text-xs text-gray-500 dark:text-gray-400 text-center px-2">
+          <span className="hidden sm:inline">Click mic to speak (transcript goes to textbox) • Edit if needed • Press Enter or click Send • Choose Fast⚡ or Smart🧠 chunking before upload • </span>
+          <span className="font-semibold">Powered by Gemini 2.0 Flash + Deepgram + Pinecone + FREE BM25</span>
         </div>
         </div>
       </div>

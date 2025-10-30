@@ -18,7 +18,6 @@ const getWebSocketUrl = () => {
 export default function VoiceInput({ onTranscript, disabled = false }: VoiceInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [transcript, setTranscript] = useState('');
   const [error, setError] = useState('');
   const [wsSupported, setWsSupported] = useState(true);
   
@@ -31,7 +30,6 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
     try {
       setIsConnecting(true);
       setError('');
-      setTranscript('');
 
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -52,8 +50,22 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
       try {
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
+        
+        // Connection timeout
+        const connectionTimeout = setTimeout(() => {
+          if (ws.readyState !== WebSocket.OPEN) {
+            console.error('❌ WebSocket connection timeout');
+            ws.close();
+            setError('Connection timeout. Please try again.');
+            setWsSupported(false);
+            setIsConnecting(false);
+            setIsRecording(false);
+            stream.getTracks().forEach(track => track.stop());
+          }
+        }, 10000); // 10 second timeout
 
         ws.onopen = () => {
+          clearTimeout(connectionTimeout);
           console.log('✓ WebSocket connected');
           setIsConnecting(false);
           setIsRecording(true);
@@ -66,6 +78,9 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
 
         const source = audioContext.createMediaStreamSource(stream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        let audioChunksProcessed = 0;
+        let lastSendTime = Date.now();
 
         processor.onaudioprocess = (e) => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -78,8 +93,25 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
               int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
             }
             
-            // Send to backend
-            ws.send(int16Data.buffer);
+            // Send to backend with error handling
+            try {
+              ws.send(int16Data.buffer);
+              audioChunksProcessed++;
+              
+              // Log progress every 5 seconds
+              const now = Date.now();
+              if (now - lastSendTime > 5000) {
+                console.log(`📊 Audio streaming: ${audioChunksProcessed} chunks sent`);
+                lastSendTime = now;
+              }
+            } catch (sendError) {
+              console.error('Failed to send audio chunk:', sendError);
+              setError('Audio streaming interrupted');
+              stopRecording();
+            }
+          } else if (ws.readyState === WebSocket.CLOSED) {
+            console.warn('⚠️  WebSocket closed, stopping audio processing');
+            stopRecording();
           }
         };
 
@@ -88,39 +120,49 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+        try {
+          const data = JSON.parse(event.data);
         
         if (data.type === 'transcript') {
-          console.log(`Transcript (${data.is_final ? 'final' : 'interim'}):`, data.text);
+          console.log(`📝 Transcript (${data.is_final ? 'FINAL' : 'interim'}):`, data.text);
           
-          // Always call callback with text and final status
-          // This allows parent to decide what to do with interim vs final
-          onTranscript(data.text.trim(), data.is_final);
-          
-          // Show transcript in component (for visual feedback)
-          if (!data.is_final) {
-            setTranscript(data.text);
-          } else {
-            // Clear after final (parent will handle it)
-            setTranscript('');
+          // Only send final transcripts to parent (skip interim for cleaner UX)
+          if (data.is_final) {
+            onTranscript(data.text.trim(), true);
+            console.log('✅ Final transcript sent to input box');
           }
+          // Note: Interim transcripts are logged but not displayed
         } else if (data.type === 'error') {
-          console.error('Transcription error:', data.message);
+          console.error('❌ Transcription error:', data.message);
           setError(data.message);
+          stopRecording();
         } else if (data.type === 'ready') {
-          console.log('Transcription service ready');
+          console.log('✅ Transcription service ready');
+          } else if (data.type === 'pong') {
+            console.log('💓 Pong received - connection alive');
+          }
+        } catch (parseError) {
+          console.error('Failed to parse WebSocket message:', parseError);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        clearTimeout(connectionTimeout);
+        console.error('❌ WebSocket error:', error);
         setError('WebSocket not supported on this platform. Voice input disabled.');
         setWsSupported(false);
         stopRecording();
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket closed');
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        console.log(`🔌 WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
+        
+        if (!event.wasClean) {
+          console.warn('⚠️  Connection closed unexpectedly');
+          setError('Connection lost. Please try again.');
+        }
+        
         stopRecording();
       };
       
@@ -174,7 +216,6 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
     }
 
     setIsRecording(false);
-    setTranscript('');
   };
 
   // Cleanup on unmount
@@ -189,7 +230,7 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
       <button
         onClick={isRecording ? stopRecording : startRecording}
         disabled={disabled || isConnecting || !wsSupported}
-        className={`p-3 rounded-lg transition-all shadow-sm ${
+        className={`p-3 rounded-lg transition-all shadow-sm flex-shrink-0 ${
           !wsSupported
             ? 'bg-gray-400 cursor-not-allowed'
             : isRecording
@@ -223,18 +264,10 @@ export default function VoiceInput({ onTranscript, disabled = false }: VoiceInpu
         )}
       </button>
 
-      {/* Live transcript display */}
-      {transcript && (
-        <div className="flex-1 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-gray-700 dark:text-gray-300 font-medium">
-          <span className="text-blue-600 dark:text-blue-400 font-semibold mr-2">Listening...</span>
-          {transcript}
-        </div>
-      )}
-
-      {/* Error display */}
-      {error && (
-        <div className="flex-1 px-4 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300 font-medium">
-          Error: {error}
+      {/* Error display - Only show errors */}
+      {error && !isRecording && (
+        <div className="absolute left-16 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-300 font-medium shadow-lg z-10 max-w-xs">
+          ⚠️ {error}
         </div>
       )}
     </div>

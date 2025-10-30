@@ -709,20 +709,44 @@ async def get_pinecone_stats(session_id: str = None):
 @router.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time speech-to-text
+    WebSocket endpoint for real-time speech-to-text with robust error handling
     
-    Client sends: Audio chunks (binary)
-    Server sends: JSON messages with transcripts
+    Client sends: Audio chunks (binary) or control messages (JSON)
+    Server sends: JSON messages with transcripts, errors, and status updates
     """
     await websocket.accept()
-    logger.info(f"WebSocket connection established: {websocket.client}")
+    logger.info(f"✅ WebSocket connection established from {websocket.client}")
     
     transcriber = None
     transcript_buffer = []
+    keepalive_task = None
+    audio_chunks_received = 0
+    last_audio_time = asyncio.get_event_loop().time()
+    
+    async def send_keepalive():
+        """Send periodic ping to keep connection alive"""
+        try:
+            while True:
+                await asyncio.sleep(30)  # Ping every 30 seconds
+                try:
+                    await websocket.send_json({
+                        "type": "ping",
+                        "timestamp": asyncio.get_event_loop().time()
+                    })
+                    logger.debug("💓 Sent keepalive ping")
+                except Exception as e:
+                    logger.error(f"Failed to send keepalive: {e}")
+                    break
+        except asyncio.CancelledError:
+            pass
     
     try:
+        # Start keepalive task
+        keepalive_task = asyncio.create_task(send_keepalive())
+        
         # Initialize Deepgram transcriber (create new instance per connection)
         transcriber = create_deepgram_transcriber()
+        logger.info("🎤 Initializing Deepgram transcriber...")
         
         # Callback for transcripts
         async def on_transcript(text: str, is_final: bool):
@@ -737,24 +761,27 @@ async def websocket_transcribe(websocket: WebSocket):
                 
                 if is_final:
                     transcript_buffer.append(text)
-                    logger.info(f"Final transcript: {text}")
+                    logger.info(f"📝 Final transcript: {text}")
+                else:
+                    logger.debug(f"⏳ Interim transcript: {text[:50]}...")
                     
             except Exception as e:
-                logger.error(f"Error sending transcript: {e}")
+                logger.error(f"❌ Error sending transcript: {e}")
         
         # Callback for errors
         async def on_error(error_msg: str):
             """Send error to client"""
             try:
+                logger.error(f"❌ Transcription error: {error_msg}")
                 await websocket.send_json({
                     "type": "error",
                     "message": error_msg
                 })
             except Exception as e:
-                logger.error(f"Error sending error message: {e}")
+                logger.error(f"❌ Error sending error message: {e}")
         
         # Start Deepgram transcription
-        logger.info("Starting Deepgram transcription...")
+        logger.info("🚀 Starting Deepgram transcription...")
         success = await transcriber.start_transcription(
             on_transcript=on_transcript,
             on_error=on_error,
@@ -764,6 +791,7 @@ async def websocket_transcribe(websocket: WebSocket):
         )
         
         if not success:
+            logger.error("❌ Failed to start Deepgram transcription service")
             await websocket.send_json({
                 "type": "error",
                 "message": "Failed to start Deepgram transcription service"
@@ -776,18 +804,25 @@ async def websocket_transcribe(websocket: WebSocket):
             "type": "ready",
             "message": "Transcription service ready. Start speaking!"
         })
-        logger.info("✓ Transcription service ready")
+        logger.info("✅ Transcription service ready - waiting for audio...")
         
         # Listen for audio data
         while True:
             try:
-                # Receive audio chunk or control message
-                data = await websocket.receive()
+                # Receive audio chunk or control message with timeout
+                data = await asyncio.wait_for(websocket.receive(), timeout=60.0)
                 
                 if "bytes" in data:
                     # Audio data - send to Deepgram
                     audio_chunk = data["bytes"]
                     await transcriber.send_audio(audio_chunk)
+                    
+                    audio_chunks_received += 1
+                    last_audio_time = asyncio.get_event_loop().time()
+                    
+                    # Log progress every 100 chunks
+                    if audio_chunks_received % 100 == 0:
+                        logger.debug(f"📊 Processed {audio_chunks_received} audio chunks")
                     
                 elif "text" in data:
                     # Control message
@@ -800,22 +835,39 @@ async def websocket_transcribe(websocket: WebSocket):
                         
                         await websocket.send_json({
                             "type": "complete",
-                            "full_transcript": full_transcript
+                            "full_transcript": full_transcript,
+                            "total_chunks": audio_chunks_received
                         })
                         
                         transcript_buffer.clear()
-                        logger.info(f"Transcript completed: {full_transcript}")
+                        logger.info(f"✅ Transcript completed: {full_transcript[:100]}... ({audio_chunks_received} chunks)")
                     
                     elif command == "ping":
                         await websocket.send_json({
-                            "type": "pong"
+                            "type": "pong",
+                            "timestamp": asyncio.get_event_loop().time()
                         })
+                        logger.debug("💓 Responded to ping")
+                    
+            except asyncio.TimeoutError:
+                logger.warning("⏰ WebSocket receive timeout (60s) - connection may be dead")
+                # Check if we've received audio recently
+                idle_time = asyncio.get_event_loop().time() - last_audio_time
+                if idle_time > 120:  # 2 minutes idle
+                    logger.warning("⚠️  Connection idle for 2 minutes, closing")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Connection idle timeout"
+                    })
+                    break
                     
             except WebSocketDisconnect:
-                logger.info("WebSocket disconnected by client")
+                logger.info("🔌 WebSocket disconnected by client")
                 break
             except Exception as e:
-                logger.error(f"Error in WebSocket loop: {e}")
+                logger.error(f"❌ Error in WebSocket loop: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
                 try:
                     await websocket.send_json({
                         "type": "error",
@@ -826,7 +878,7 @@ async def websocket_transcribe(websocket: WebSocket):
                 break
     
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"❌ WebSocket error: {e}")
         import traceback
         logger.error(traceback.format_exc())
         try:
@@ -839,15 +891,30 @@ async def websocket_transcribe(websocket: WebSocket):
     
     finally:
         # Cleanup
+        logger.info(f"🧹 Cleaning up WebSocket connection (processed {audio_chunks_received} chunks)")
+        
+        # Cancel keepalive task
+        if keepalive_task:
+            keepalive_task.cancel()
+            try:
+                await keepalive_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Stop transcriber
         if transcriber:
             try:
                 await transcriber.stop_transcription()
+                logger.info("✅ Deepgram transcriber stopped")
             except Exception as e:
-                logger.error(f"Error stopping transcriber: {e}")
+                logger.error(f"❌ Error stopping transcriber: {e}")
         
+        # Close WebSocket
         try:
             await websocket.close()
+            logger.info("✅ WebSocket closed cleanly")
         except:
+            pass
             pass
         
         logger.info("WebSocket connection closed and cleaned up")
